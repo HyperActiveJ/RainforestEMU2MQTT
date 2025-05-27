@@ -57,7 +57,7 @@ def on_mqtt_connect(client, userdata, flags, result):
 
 def on_mqtt_disconnect(client, userdata, result):
     if result != 0:
-        logging.error("MQTT disconnected, error " + result)
+        logging.error("MQTT disconnected, error " + str(result))
         client.connected_flag = False
 
 def main():
@@ -207,10 +207,10 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action='store_true', help="enable debug logging", required=False)
     parser.add_argument("--mqtt_client_name", help="MQTT client name", required=False, default='emu2mqtt')
-    parser.add_argument("--mqtt_server", help="MQTT server", required=False, default='localhost')
+    parser.add_argument("--mqtt_server", help="MQTT server", required=False, default='192.168.50.178')
     parser.add_argument("--mqtt_port", help="MQTT server port", required=False, default=1883)
     parser.add_argument("--mqtt_username", help="MQTT username", required=False, default='pub')
-    parser.add_argument("--mqtt_password", help="MQTT password", required=False, default='')
+    parser.add_argument("--mqtt_password", help="MQTT password", required=False, default='mqttpub')
     parser.add_argument("--mqtt_topic", help="MQTT root topic", required=False, default='emu2mqtt')
     parser.add_argument("--mqtt_qos", help="MQTT QoS", required=False, default=0)
     parser.add_argument("--serial_port", help="Rainforest EMU-2 serial port, e.g. 'ttyACM0'", required=False, default='ttyACM0')
