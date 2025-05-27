@@ -1,0 +1,2 @@
+-r ./emu-requirements.txt
+paho-mqtt==1.4.0
