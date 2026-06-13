@@ -32,9 +32,19 @@ def get_price(obj):
     return int(obj.Price, 16) / float(10 ** int(obj.TrailingDigits, 16))
 
 def publish_message(mqttc, message):
+    # Returns True only if the message was handed to the broker successfully.
+    # We deliberately do NOT call wait_for_publish(): in paho-mqtt 1.4.0 that
+    # call blocks forever if the socket has dropped (e.g. the broker restarts
+    # with Home Assistant), which silently freezes the whole reporting loop.
+    if not mqttc.connected_flag:
+        logging.warning("Skipping publish to %s, MQTT not connected", message["topic"])
+        return False
     logging.info(message)
     publish_msg = mqttc.publish(message["topic"], message["value"], int(args.mqtt_qos), False)
-    publish_msg.wait_for_publish()
+    if publish_msg.rc != mqtt.MQTT_ERR_SUCCESS:
+        logging.warning("Publish to %s failed, rc=%s", message["topic"], publish_msg.rc)
+        return False
+    return True
 
 def on_sigint(sig, frame):
     global exiting
@@ -51,9 +61,13 @@ def on_mqtt_connect(client, userdata, flags, result):
     if result == 0:
         logging.info("Connected to MQTT.")
         client.connected_flag = True
+        client.bad_connection_flag = False
     else:
-        logging.critical("Error on MQTT connect: " + str(result))
-        client.bad_connection_flag = True
+        # A non-zero CONNACK is often transient (e.g. the broker is mid-restart
+        # with Home Assistant and returns "server unavailable"). Log it but let
+        # paho keep retrying rather than treating it as fatal.
+        logging.warning("Error on MQTT connect: " + str(result) + " (will keep retrying)")
+        client.connected_flag = False
 
 def on_mqtt_disconnect(client, userdata, result):
     if result != 0:
@@ -67,6 +81,9 @@ def main():
     mqttc.on_disconnect = on_mqtt_disconnect
     mqttc.will_set(args.mqtt_topic + "/lwt", "offline", int(args.mqtt_qos), True)
     mqttc.username_pw_set(args.mqtt_username, args.mqtt_password)
+    # Bounded exponential backoff so reconnects keep trying after a broker/HA
+    # restart instead of giving up or hammering the broker.
+    mqttc.reconnect_delay_set(min_delay=1, max_delay=60)
     mqttc.connect_async(args.mqtt_server, int(args.mqtt_port), 60)
 
     emuc.start_serial()
@@ -75,28 +92,32 @@ def main():
     emuc.get_current_summation_delivered()
    # emuc.get_price_blocks()
 
-    last_demand = 0
-    last_price = 0
-    last_reading = 0
+    # ISO-8601 timestamps compare correctly as strings, so seed with "" to mean
+    # "nothing published yet". (Using 0 here forced a str > int comparison that
+    # raised TypeError on every reading and was only masked by the duplicated
+    # "== 0" special cases below.)
+    last_demand = ""
+    last_price = ""
+    last_reading = ""
 
     mqttc.loop_start()
     logging.info("Connecting to MQTT broker " + args.mqtt_server + ":" + str(args.mqtt_port) + " as " + args.mqtt_client_name)
 
     while True:
+        # Wait for the (re)connection to come back. paho's loop_start() thread
+        # handles the actual reconnect/backoff; we just pause publishing until
+        # connected_flag flips back to True. We never exit here so the daemon
+        # survives a broker/Home Assistant restart.
         while not mqttc.connected_flag:
             logging.debug("Waiting to connect to MQTT...")
             time.sleep(3)
-            if mqttc.bad_connection_flag:
-                mqttc.loop_stop()
-                sys.exit()
 
         #logging.debug("Sleeping for 1 seconds")
         time.sleep(1)
         #logging.debug("Checking for serial messages")
 
         if mqttc.connected_flag:
-            lwt_msg = mqttc.publish(args.mqtt_topic + "/lwt", "online", int(args.mqtt_qos), True)
-            lwt_msg.wait_for_publish()
+            mqttc.publish(args.mqtt_topic + "/lwt", "online", int(args.mqtt_qos), True)
 
         try:
             price_cluster = emuc.PriceCluster
@@ -107,8 +128,10 @@ def main():
                     "value": get_price(price_cluster),
                     "timestamp": timestamp
                 }
-                publish_message(mqttc, message)
-                last_price = timestamp
+                # Only advance the watermark if the value actually went out, so a
+                # reading dropped during a disconnect is re-sent after reconnect.
+                if publish_message(mqttc, message):
+                    last_price = timestamp
         except AttributeError:
             pass
         except TypeError:
@@ -117,25 +140,15 @@ def main():
         try:
             instantaneous_demand = emuc.InstantaneousDemand
             timestamp = get_timestamp(instantaneous_demand)
-            if  (last_demand == 0):
-                last_demand = timestamp #- timedelta(seconds=1)
+            if timestamp > last_demand:
                 message = {
                     "topic": args.mqtt_topic + "/demand",
                     "value": get_reading(instantaneous_demand.Demand, instantaneous_demand)*1000,
                     "timestamp": timestamp
                 }
-                publish_message(mqttc, message)
-                last_demand = timestamp
-            if (timestamp > last_demand) :
-                message = {
-                    "topic": args.mqtt_topic + "/demand",
-                    "value": get_reading(instantaneous_demand.Demand, instantaneous_demand)*1000,
-                    "timestamp": timestamp
-                }
-                publish_message(mqttc, message)
-                last_demand = timestamp
-                #emuc.get_current_summation_delivered()
-                
+                if publish_message(mqttc, message):
+                    last_demand = timestamp
+
         except AttributeError:
             pass
         except TypeError:
@@ -144,57 +157,30 @@ def main():
         try:
             current_summation_delivered = emuc.CurrentSummationDelivered
             timestamp = get_timestamp(current_summation_delivered)
-            if  (last_reading == 0):
-                last_reading = timestamp # - timedelta(seconds=1)
+            if timestamp > last_reading:
                 delivered = get_reading(current_summation_delivered.SummationDelivered,
                                          current_summation_delivered)
                 recieved = get_reading(current_summation_delivered.SummationReceived,
                                          current_summation_delivered)
                 reading = delivered - recieved
-                message = {
-                    "topic": args.mqtt_topic + "/reading",           
+                ok = publish_message(mqttc, {
+                    "topic": args.mqtt_topic + "/reading",
                     "value": reading,
                     "timestamp": timestamp
-                }
-                publish_message(mqttc, message)
-                message = {
-                    "topic": args.mqtt_topic + "/readingd",           
+                })
+                ok = publish_message(mqttc, {
+                    "topic": args.mqtt_topic + "/readingd",
                     "value": delivered,
                     "timestamp": timestamp
-                }
-                publish_message(mqttc, message)
-                message = {
-                    "topic": args.mqtt_topic + "/readingr",           
+                }) and ok
+                ok = publish_message(mqttc, {
+                    "topic": args.mqtt_topic + "/readingr",
                     "value": recieved,
                     "timestamp": timestamp
-                }
-                publish_message(mqttc, message)
-                last_reading = timestamp
-            if (timestamp > last_reading) :
-                delivered = get_reading(current_summation_delivered.SummationDelivered,
-                                         current_summation_delivered)
-                recieved = get_reading(current_summation_delivered.SummationReceived,
-                                         current_summation_delivered)
-                reading = delivered - recieved
-                message = {
-                    "topic": args.mqtt_topic + "/reading",           
-                    "value": reading,
-                    "timestamp": timestamp
-                }
-                publish_message(mqttc, message)
-                message = {
-                    "topic": args.mqtt_topic + "/readingd",           
-                    "value": delivered,
-                    "timestamp": timestamp
-                }
-                publish_message(mqttc, message)
-                message = {
-                    "topic": args.mqtt_topic + "/readingr",           
-                    "value": recieved,
-                    "timestamp": timestamp
-                }
-                publish_message(mqttc, message)
-                last_reading = timestamp
+                }) and ok
+                # Only advance once all three sub-readings made it out.
+                if ok:
+                    last_reading = timestamp
         except AttributeError:
             pass
         except TypeError:
