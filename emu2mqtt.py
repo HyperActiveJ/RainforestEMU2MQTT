@@ -16,6 +16,10 @@
 # shape of the polling loop. Those portions remain under that licence; a copy is
 # included as LICENSE-APACHE-2.0. The rest of this file is MIT (see LICENSE), and
 # NOTICE says which parts are which.
+#
+# NOTICE OF MODIFICATION: the portions taken from emu2influx have been MODIFIED here --
+# the InfluxDB writes are replaced by MQTT publishing with Home Assistant topic naming,
+# and the loop is restructured around reconnect handling and a publish pause.
 # This script uses the [Emu-Serial-API](https://github.com/rainforestautomation/Emu-Serial-API) by Rainforest Automation, through the vendored emu.py and api_classes.py. See the header of each of those files, and NOTICE.
 
 import logging

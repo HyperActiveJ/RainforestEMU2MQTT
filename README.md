@@ -175,7 +175,8 @@ Rainforest.
 This repository contains code under more than one licence. Read [NOTICE](NOTICE) before
 reusing any of it; in short:
 
-- **This project's own code** — `emu2mqtt.py`, this documentation, and everything not listed
+- **This project's own code** — `emu2mqtt.py` *except the portions noted below*, this
+  documentation, and everything not listed
   below — is **MIT**, see [LICENSE](LICENSE).
 - **`emu.py` and `api_classes.py`** come from
   [Emu-Serial-API](https://github.com/rainforestautomation/Emu-Serial-API) by Rainforest
