@@ -1,0 +1,6 @@
+# lxml / pyserial are used by the EMU-2 serial driver (emu.py, api_classes.py).
+lxml
+pyserial
+# paho-mqtt must stay on the 1.x API: emu2mqtt.py uses mqtt.Client(client_id)
+# positionally and the v1 callback signatures, both of which changed in 2.0.
+paho-mqtt==1.4.0

@@ -1,0 +1,35 @@
+This repository contains code under more than one licence. Read this before reusing it.
+
+1. This project's own code — MIT, see LICENSE.
+   `emu2mqtt.py` is this project's own work EXCEPT for the portions noted in section 3,
+   which are not MIT. The documentation here is MIT.
+
+2. `emu.py` and `api_classes.py` — NO LICENCE GRANTED
+   These come from the Emu-Serial-API project by Rainforest Automation, Inc.
+   (https://github.com/rainforestautomation/Emu-Serial-API). `api_classes.py` is that
+   project's file unchanged apart from an added attribution header; `emu.py` is that
+   project's `emu.py`, MODIFIED here.
+
+   NOTICE OF MODIFICATION for `emu.py`: the module was ported from Python 2 to Python 3
+   (print statements to print() calls, unicode() to str(), map() results wrapped in list(),
+   serial bytes decoded before XML parsing, python3 shebang), and the serial thread's debug
+   copy of each outgoing command to `static/emu-log.txt` was removed — it wrote into a
+   directory this project does not ship and raised TypeError under Python 3 inside a bare
+   `except: pass`, so it never wrote anything. Nothing else in the serial thread changed.
+   The reconnect and unattended-running behaviour lives in `emu2mqtt.py`, not here.
+
+   ⚠️ The Emu-Serial-API project publishes NO licence — no LICENSE file, no stated terms —
+   so no reuse rights are granted by its authors, and none are granted here. The files are
+   included because the bridge does not work without them, with attribution and no claim of
+   ownership. Take them from the Rainforest repository instead if you prefer; they are
+   drop-in.
+
+3. Portions of `emu2mqtt.py` — Apache Licence 2.0
+   Parts of `emu2mqtt.py` come from the emu2influx project by Alex Baker
+   (https://github.com/abaker/emu2influx), which is licensed under the Apache Licence 2.0:
+   the EMU-2 message handling and its helpers — the Y2K epoch constant and the
+   `get_timestamp`, `get_reading` and `get_price` functions — and the overall shape of the
+   polling loop. Those portions remain under the Apache Licence 2.0, a copy of which is
+   included as LICENSE-APACHE-2.0. The MQTT client, the Home Assistant topic layout, the
+   reconnect and backoff handling and the rest of the file are this project's own work and
+   are MIT.
